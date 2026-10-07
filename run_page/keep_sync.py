@@ -33,6 +33,7 @@ KEEP2STRAVA = {
     "outdoorCycling": "Ride",
     "indoorRunning": "VirtualRun",
     "mountaineering": "Hiking",
+    "trailRunning": "Run",
 }
 KEEP2TCX = {
     "outdoorWalking": "Walking",
@@ -40,6 +41,7 @@ KEEP2TCX = {
     "outdoorCycling": "Biking",
     "indoorRunning": "Running",
     "mountaineering": "Hiking",
+    "trailRunning": "Running",
 }
 
 # need to test

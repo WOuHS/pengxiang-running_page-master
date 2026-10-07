@@ -14,8 +14,8 @@ mapbox_token: ''
 
 # 头像 URL（支持本地路径或远程图片链接）
 #avatar: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQTtc69JxHNcmN1ETpMUX4dozAgAN6iPjWalQ&usqp=CAU'
-avatar: '%BASE_URL%/images/pengxiang.png'
-#avatar: '/images/pengxiang.png'
+#avatar: '%BASE_URL%/images/pengxiang.png'
+avatar: '/images/pengxiang.png'
 
 # 默认语言：zh（中文）| en（英文）
 locale: zh

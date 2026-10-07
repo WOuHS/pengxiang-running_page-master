@@ -1532,3 +1532,111 @@ Actions [源码](https://github.com/yihong0618/running_page/blob/master/.github/
   ```bash
   if [ "$VERCEL_GIT_COMMIT_REF" != "gh-pages" ]; then exit 1; else exit 0;
   ```
+
+---
+
+# 部署与同步排障记录（2026-10-06 ~ 10-07）
+
+> 本节记录本项目（pengxiang-running_page-master）从「本地仓库换绑 → 推送 → 部署 → 域名 → 地图 → 数据同步」整条链路中实际遇到的问题及最终解决方案，供后续排障参考。
+
+## 1. GitHub 远程仓库换绑与覆盖
+
+**现象**：想把本地新内容覆盖到远程仓库，`git push` 依次报错：
+
+```text
+Could not resolve host: xn--github-9f1q.com
+Authentication failed（Invalid username or token）
+403 Permission denied to WOuHS
+```
+
+**原因**：
+- `.git/config` 中远程 URL 混入了不可见特殊字符，被解析成错误域名；
+- GitHub 已不再支持密码认证，需改用 Personal Access Token（PAT）或 SSH；
+- fine-grained token 未对仓库授权、且 Contents 权限为只读。
+
+**解决**：
+- 修正 `.git/config` 中的远程 URL（去除隐藏字符）；
+- 远程地址切换为 SSH：`git@github.com:WOuHS/pengxiang-running_page-master.git`，并验证免密（`ssh -T git@github.com`）；
+- 本地分支改为主分支并强制覆盖：`git branch -M master` + `git push -u origin master --force`。
+
+## 2. 本地 / Vercel / 域名三处内容不一致（新版 vs 旧版）
+
+**现象**：本地是新版 Dashboard 主题，线上域名却是旧版 “Workouts Page”。
+
+**原因**：本地新版在 `main` 分支，而远程 master 与 Vercel 生产环境（Branch Tracking: master）跟踪的是旧版 master。
+
+**解决**：本地分支改为 master，`git push -u origin master --force` 覆盖远程，Vercel 生产环境随即自动部署新版。
+
+## 3. 域名仍旧版（Vercel CDN 缓存）
+
+**现象**：Cloudflare 缓存已 purge，域名仍显示旧版。
+
+**原因**：Vercel 自身 CDN 缓存了旧响应（响应头 `x-vercel-cache: HIT`、`Age` 达数天），不随新部署立即刷新；且 Cloudflare 代理（橙云）与 Vercel 形成双重缓存叠加，Vercel 面板对域名提示 `Proxy Detected`。
+
+**解决**：在 Vercel 重新 Redeploy（或等待缓存过期）；并建议将 Cloudflare 中 `@` / `www` 两条 CNAME 由"代理（橙云）"改为"仅 DNS（灰云）"，避免双重缓存。
+
+## 4. 地图底图不加载
+
+**现象**：轨迹正常显示，但地图区域空白，提示"底图加载失败"。
+
+**原因**：`config.yml` 中 `mapbox_token: ''` 为空，源码读取链为空时地图无法加载底图。
+
+**解决**：
+- 在 **Vercel 环境变量**中配置 `VITE_MAPBOX_TOKEN`（变量类型须选 **Config**，否则 Vercel 会因"公开前缀"拒绝保存）；
+- **不要**把 token 提交进仓库——GitHub Push Protection 会拦截含 secret 的提交。
+
+## 5. 手机端不显示足迹地图
+
+**现象**：电脑浏览器正常，手机 Safari/Chrome 上地图区域空白。
+
+**原因**：手机浏览器缓存了旧版本页面/资源。
+
+**解决**：先用**无痕窗口**打开验证（能显示即确认为缓存），随后清除手机浏览器缓存（设置 → 清除网站数据 / 缓存的图片与文件）。
+
+## 6. 头像裂图
+
+**现象**：页面头像显示空白/裂图。
+
+**原因**：线上构建的 JS 中头像引用仍为 `%BASE_URL%/images/pengxiang.png`，`%BASE_URL%` 占位符未被构建替换为实际路径。
+
+**解决**：将 `config.yml` 中 `avatar` 改为直接路径：
+
+```yaml
+avatar: '/images/pengxiang.png'   # 部署在根路径时有效，不依赖占位符替换
+```
+
+重新构建部署后头像即可显示。
+
+## 7. keep 越野跑数据未同步
+
+**现象**：keep 中标记为"越野跑"的 3 条记录未进入站点数据。
+
+**原因**：keep 越野跑记录的类型标识为 `trailRunning`，不在同步脚本 `KEEP2STRAVA` / `KEEP2TCX` 的映射字典中，解析时 `KEEP2STRAVA[dataType]` 抛 `KeyError`，被脚本的 `except` 静默跳过。
+
+**解决**：在 `run_page/keep_sync.py` 的映射字典中补充：
+
+```python
+KEEP2STRAVA = {
+    ...,
+    "trailRunning": "Run",      # 新增：keep 越野跑 → Run
+}
+KEEP2TCX = {
+    ...,
+    "trailRunning": "Running",  # 新增
+}
+```
+
+重新同步后越野跑以 `Run` 类型进入数据。
+
+## 8. 启用 keep 每日自动同步
+
+**配置**：将 `.github/workflows/run_data_sync.yml` 中的 `RUN_TYPE` 由 `pass` 改为 `keep`，并在 GitHub **Settings → Secrets and variables → Actions** 配置 `KEEP_MOBILE`、`KEEP_PASSWORD`。
+
+**效果**：每天 UTC 00:00（北京时间 08:00）自动同步 keep 数据（含 `--with-gpx`，保留 GPX 轨迹），自动提交回 master 并触发 Vercel 部署。
+
+> ⚠️ 注意：`RUN_TYPE: pass` 时 workflow 虽定时触发，但所有同步步骤都不会执行（实际上不干活）。
+
+## 附：GitHub 自动同步带来的额外现象
+
+- GitHub Actions 同步完成后会自动提交 `update new runs` 到 master；本地再 push 时可能遇到 `Updates were rejected`，需先 `git pull --rebase origin master` 再推送。
+- 仓库存在 dependabot 依赖漏洞告警（GitHub Security 页面可见），不影响运行，建议后续更新依赖。

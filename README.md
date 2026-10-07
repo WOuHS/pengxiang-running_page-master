@@ -1409,3 +1409,73 @@ Just enjoy it~
   ```bash
   if [ "$VERCEL_GIT_COMMIT_REF" != "gh-pages" ]; then exit 1; else exit 0;
   ```
+---
+
+# 部署与同步排障记录（2026-10-06 ~ 10-07）
+
+> 本节记录本项目（pengxiang-running_page-master）从「本地仓库换绑 → 推送 → 部署 → 域名 → 地图 → 数据同步」整条链路中实际遇到的问题及最终解决方案，供后续排障参考。
+
+## 1. win新版本vite不稳定
+
+**现象**：vite安装失败导致程序不运行
+
+**原因**：. win新版本vite不稳定
+
+**解决**：修改 package.json 里 vite 版本："vite": "^7.0.0" 以及修改 "@vitejs/plugin-react": "^5.0.0"
+
+## 2. 彻底重构数据库
+
+**现象**：
+
+**原因**：. 
+
+**解决**：删除imported.json以及runpage/data.db
+
+
+## 3. 本地 / Vercel内容不一致（新版 vs 旧版）
+
+**现象**：本地是新版 Dashboard 主题，线上域名却是旧版 “Workouts Page”。
+
+**原因**：本地新版在 `main` 分支，而远程 master 与 Vercel 生产环境（Branch Tracking: master）跟踪的是旧版 master。
+
+**解决**：本地分支改为 master，`git push -u origin master --force` 覆盖远程，Vercel 生产环境随即自动部署新版。
+
+## 4. Vercel / 域名内容不一致
+ 
+**现象**：本地是新版 Dashboard 主题，线上域名却是旧版 “Workouts Page”。
+
+**原因**：claudeflare和vercel的域名未绑定
+
+**解决**：需要在claudeflare和vercel同时绑定域名，仅绑定一处无法完整修改
+
+## 5. 地图底图不加载
+
+**现象**：轨迹正常显示，但地图区域空白，提示"底图加载失败"。
+
+**原因**：`config.yml` 中 `mapbox_token: ''` 为空，源码读取链为空时地图无法加载底图。
+
+**解决**：
+- 在 **Vercel 环境变量**中配置 `VITE_MAPBOX_TOKEN`（变量类型须选 **Config**，否则 Vercel 会因"公开前缀"拒绝保存）；
+- **不要**把 token 提交进仓库——GitHub Push Protection 会拦截含 secret 的提交。
+
+## 6. 头像裂图
+
+**现象**：页面头像显示空白/裂图。
+
+**原因**：线上构建的 JS 中头像引用仍为 `%BASE_URL%/images/pengxiang.png`，`%BASE_URL%` 占位符未被构建替换为实际路径。
+
+**解决**：将 `config.yml` 中 `avatar` 改为直接路径：
+
+```yaml
+avatar: '/images/pengxiang.png'   # 部署在根路径时有效，不依赖占位符替换
+```
+
+重新构建部署后头像即可显示。
+
+## 7. 启用 keep 每日自动同步
+
+**配置**：将 `.github/workflows/run_data_sync.yml` 中的 `RUN_TYPE` 由 `pass` 改为 `keep`，并在 GitHub **Settings → Secrets and variables → Actions** 配置 `KEEP_MOBILE`、`KEEP_PASSWORD`。
+
+**效果**：每天 UTC 00:00（北京时间 08:00）自动同步 keep 数据（含 `--with-gpx`，保留 GPX 轨迹），自动提交回 master 并触发 Vercel 部署。
+
+> ⚠️ 注意：`RUN_TYPE: pass` 时 workflow 虽定时触发，但所有同步步骤都不会执行（实际上不干活）。
